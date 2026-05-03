@@ -1,57 +1,35 @@
-# WebSSH Gateway Client
+# WebSSH Platform
+Production-oriented browser SSH client with backend SSH gateway over WebSocket.
 
-Production-structured web SSH client in the same product category as Termius.
+## Architecture diagram (text)
+`Browser UI (React + xterm)` -> `REST API (Express auth/hosts/identities)` + `WS Gateway (/ws/terminal)` -> `SSH Session Manager (ssh2 + PTY)` -> `Remote SSH servers`
 
-## Architecture
-- **Frontend (React + Vite + xterm.js):** terminal UX, host sidebar, tabs-ready layout, settings page.
-- **Backend (Express + ws + ssh2):** authenticated WebSocket terminal transport, SSH PTY lifecycle, rate limiting, host policy controls.
-- **Persistence (SQLite):** host manager storage + encrypted credentials + audit logs.
-- **Shared types package:** typed protocol events and models.
+Persistence: SQLite (`users`, `hosts`, `identities`, `trusted_host_keys`, `sessions`, `audit_logs`, `user_settings`).
 
-## Security model
-- Browser never opens raw SSH; SSH runs only in backend gateway.
-- Secrets encrypted at rest with AES-256-GCM (`CREDENTIAL_KEY`).
-- Passwords/private keys are never plaintext on disk.
-- JWT-authenticated WebSocket session required.
-- Host outbound policy blocks localhost, loopback, metadata IP, and private/internal ranges unless `ALLOW_PRIVATE_RANGES=true`.
-- Audit logs include only connect start/end metadata, never command content or credentials.
+## Setup
+1. `cp .env.example .env`
+2. Fill `JWT_SECRET` and `ENCRYPTION_KEY` with strong values.
+3. `npm install`
+4. `npm run dev`
 
-## Features implemented
-- Host manager persistence and list/create APIs.
-- SSH connection (host/port/username + password or private key).
-- PTY shell over `ssh2` with resize support.
-- Real-time bidirectional streaming over WebSocket.
-- Multi-session primitives (`sessionId` routing).
-- Session cleanup on disconnect.
-- Connection states in UI.
-- Theme-ready terminal + settings page scaffold.
-- Basic session input history tracked server-side.
-- Rate limiting and connection policy controls.
+## Dev commands
+- `npm run dev`
+- `npm run build`
+- `npm run test -w backend`
 
-## Environment variables
-Backend (`backend/.env`):
-- `PORT=8080`
-- `JWT_SECRET=` long random secret (min 16)
-- `DATA_PATH=./data/app.db`
-- `CREDENTIAL_KEY=` 32+ char key
-- `ALLOW_PRIVATE_RANGES=false`
+## Security notes
+- Browser never opens direct SSH TCP connections.
+- Saved credentials encrypted at rest (AES-256-GCM).
+- Passwords hashed (bcrypt).
+- API and WebSocket require JWT authentication.
+- Network guard blocks localhost/private/internal ranges by default.
+- Audit logs exclude command content and secrets.
 
-## Local setup
-1. `npm install`
-2. Configure backend env vars.
-3. `npm run dev`
-4. Open frontend and create hosts via API/UI integration.
+## Deployment
+- Run behind TLS reverse proxy.
+- Store secrets in KMS/Vault.
+- Set egress policies and keep `ADMIN_ALLOW_PRIVATE_NETWORKS=false` unless explicitly required.
 
-## Deployment guide
-- Place backend behind TLS reverse proxy (Nginx/Traefik).
-- Enforce secure cookies / OIDC SSO for production auth.
-- Store `JWT_SECRET` and `CREDENTIAL_KEY` in secret manager (Vault/KMS).
-- Use managed Postgres (instead of SQLite) for horizontal scale.
-- Add SIEM forwarding for audit log events.
-- Restrict egress with firewall + admin allow-list for approved SSH destinations.
-
-## Notes for production hardening
-- Add CSRF + refresh token rotation.
-- Add RBAC and per-user host scoping.
-- Add explicit reconnect token + resume handshake.
-- Add host key fingerprint verification and trust-on-first-use prompts.
+## Known limitations
+- Fingerprint trust flow is implemented server-side and emits `fingerprint_required`; frontend confirmation UX wiring must be completed to prompt/approve inline.
+- Integration tests against a real SSH endpoint are not run in CI by default; run in controlled env with test SSH container.
