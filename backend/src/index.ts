@@ -44,14 +44,15 @@ wss.on('connection', (ws, req) => {
     if (m.type === 'start') {
       try {
         const host = db.prepare('SELECT * FROM hosts WHERE id=? AND user_id=?').get(m.hostId, userId) as any; if (!host) return ws.send(JSON.stringify({ type: 'error', message: 'host_not_found' }));
-        await validateTarget(host.hostname, host.port, env.ADMIN_ALLOW_PRIVATE_NETWORKS);
+        const resolvedTargets = await validateTarget(host.hostname, host.port, env.ADMIN_ALLOW_PRIVATE_NETWORKS);
+        const resolvedHost = resolvedTargets[0];
         const sid = uuid(); const ssh = new Client(); sessions.set(sid, { userId, hostId: host.id, ssh, ws, status: 'connecting' });
         ssh.on('error', () => ws.send(JSON.stringify({ type: 'state', sessionId: sid, state: 'failed' }))).on('close', () => { ws.send(JSON.stringify({ type: 'state', sessionId: sid, state: 'disconnected' })); sessions.delete(sid); });
         ssh.on('ready', () => { ws.send(JSON.stringify({ type: 'state', sessionId: sid, state: 'connected' })); ssh.shell({ term: 'xterm-256color', cols: m.cols || 120, rows: m.rows || 30 }, (_e, stream) => { sessions.get(sid)!.stream = stream; stream.on('data', (d: Buffer) => ws.send(JSON.stringify({ type: 'output', sessionId: sid, data: d.toString('utf8') }))); }); });
         const identity = host.identity_id ? db.prepare('SELECT * FROM identities WHERE id=? AND user_id=?').get(host.identity_id, userId) as any : null;
         const secret = m.connectOnce?.secret || (identity ? decryptSecret(identity.encrypted_secret, env.ENCRYPTION_KEY) : null);
         const passphrase = m.connectOnce?.passphrase || (identity?.encrypted_passphrase ? decryptSecret(identity.encrypted_passphrase, env.ENCRYPTION_KEY) : undefined);
-        ssh.connect({ host: host.hostname, port: host.port, username: host.ssh_username, readyTimeout: env.SSH_CONNECT_TIMEOUT_MS, hostHash: 'sha256', hostVerifier: (hashed) => { const row = db.prepare('SELECT * FROM trusted_host_keys WHERE user_id=? AND host_id=?').get(userId, host.id) as any; if (!row) { ws.send(JSON.stringify({ type: 'fingerprint_required', sessionId: sid, fingerprint: hashed })); return false; } return row.fingerprint === hashed; }, ...(identity?.type === 'privateKey' ? { privateKey: secret, passphrase } : { password: secret }) });
+        ssh.connect({ host: resolvedHost, port: host.port, username: host.ssh_username, readyTimeout: env.SSH_CONNECT_TIMEOUT_MS, hostHash: 'sha256', hostVerifier: (hashed) => { const row = db.prepare('SELECT * FROM trusted_host_keys WHERE user_id=? AND host_id=?').get(userId, host.id) as any; if (!row) { ws.send(JSON.stringify({ type: 'fingerprint_required', sessionId: sid, fingerprint: hashed })); return false; } return row.fingerprint === hashed; }, ...(identity?.type === 'privateKey' ? { privateKey: secret, passphrase } : { password: secret }) });
         audit(userId, 'connection.start', sid);
       } catch { ws.send(JSON.stringify({ type: 'state', state: 'failed' })); }
     }
