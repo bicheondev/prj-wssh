@@ -43,3 +43,25 @@ Persistence: SQLite (`users`, `hosts`, `identities`, `trusted_host_keys`, `sessi
 - Frontend fingerprint confirmation UX is not fully wired; backend emits `fingerprint_required` and blocks until trust record exists.
 - Integration tests against a real SSH endpoint are not included in default test run.
 - Token revocation list / refresh token lifecycle is not yet implemented.
+
+## Future cloud provider foundation
+- Connected account placeholders are implemented for Google and Oracle Cloud in UI/backend provider registry.
+- OAuth/API integrations are not implemented yet.
+- Planned Google path: OAuth, list GCE instances, optional OS Login + IAP tunneling support, import instances into hosts.
+- Planned OCI path: OCI credentials/OAuth (if supported), list compute instances, import host records, reuse saved SSH identities.
+- Cloud tokens/credentials must be encrypted at rest and never logged.
+
+## Cross-device sync notes
+- User settings sync is implemented (theme, font size, font family, layout density, scrollback, last active session id).
+- Session metadata sync is implemented (host id, tab title, last activity timestamps).
+- Limitation: live SSH stream handoff between devices is not implemented; it requires backend session attach/detach protocol.
+
+## Dev ports
+- Backend API/WebSocket server: `http://localhost:8080`
+- Frontend Vite app: `http://localhost:5173`
+
+## Nginx reverse proxy (port 80)
+Run nginx on port 80 and route traffic to frontend/backend services:
+- `/` -> frontend (`localhost:5173`)
+- `/api` and `/ws/terminal` -> backend (`localhost:8080`)
+- Ensure WebSocket upgrade headers are enabled for `/ws/terminal`.
