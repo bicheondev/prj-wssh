@@ -1,0 +1,5 @@
+body { margin:0; font-family: Inter, sans-serif; background:#0b1220; color:#dbeafe; }
+.app { display:grid; grid-template-columns:260px 1fr; min-height:100vh; }
+aside { border-right:1px solid #1f2937; padding:16px; display:flex; flex-direction:column; gap:8px; }
+a { color:#93c5fd; text-decoration:none; }
+main { padding:16px; }
