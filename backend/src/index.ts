@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import { createServer } from 'http';
 import helmet from 'helmet';
@@ -23,6 +24,11 @@ const audit = (userId: string, event: string, target?: string) => db.prepare('IN
 app.post('/api/auth/register', asyncWrap(async (req, res) => { const { email, password } = req.body; if (!email || !password || password.length < 10) return res.status(400).json({ message: 'Invalid' }); const id = uuid(); db.prepare('INSERT INTO users VALUES (?,?,?,?)').run(id, email, await hashPassword(password), new Date().toISOString()); db.prepare('INSERT INTO user_settings(user_id) VALUES (?)').run(id); res.status(201).json({ token: signToken(env.JWT_SECRET, id) }); }));
 app.post('/api/auth/login', asyncWrap(async (req, res) => { const u = db.prepare('SELECT * FROM users WHERE email=?').get(req.body.email) as any; if (!u || !(await verifyPassword(req.body.password || '', u.password_hash))) return res.status(401).json({ message: 'Invalid credentials' }); res.json({ token: signToken(env.JWT_SECRET, u.id) }); }));
 app.post('/api/auth/logout', auth, (_req, res) => res.status(204).end());
+
+app.get('/api/settings', auth, asyncWrap(async (req:any,res)=>{const row=db.prepare('SELECT * FROM user_settings WHERE user_id=?').get(req.userId) as any; res.json(row||{}); }));
+app.put('/api/settings', auth, asyncWrap(async (req:any,res)=>{db.prepare('INSERT INTO user_settings(user_id,theme,font_size,font_family,layout_density,scrollback_lines,last_active_session_id) VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET theme=excluded.theme,font_size=excluded.font_size,font_family=excluded.font_family,layout_density=excluded.layout_density,scrollback_lines=excluded.scrollback_lines,last_active_session_id=excluded.last_active_session_id').run(req.userId,req.body.theme||'dark',req.body.font_size||14,req.body.font_family||'JetBrains Mono',req.body.layout_density||'comfortable',req.body.scrollback_lines||10000,req.body.last_active_session_id||null); res.status(204).end(); }));
+app.get('/api/providers', auth, (_req,res)=>res.json([{provider:'google',implemented:false},{provider:'oracle',implemented:false}]));
+app.get('/api/recent-sessions', auth, asyncWrap(async (req:any,res)=>{res.json(db.prepare('SELECT id,host_id,tab_title,status,started_at,last_activity_at FROM sessions WHERE user_id=? ORDER BY started_at DESC LIMIT 20').all(req.userId)); }));
 app.get('/api/hosts', auth, asyncWrap(async (req: any, res) => res.json(db.prepare('SELECT id,display_name,hostname,port,ssh_username,group_name,favorite,notes,last_connected_at FROM hosts WHERE user_id=?').all(req.userId))));
 
 const sessions = new Map<string, { userId: string; hostId: string; ssh: Client; stream?: any; ws: any; status: string }>();
@@ -50,7 +56,7 @@ wss.on('connection', (ws, req) => {
       } catch { ws.send(JSON.stringify({ type: 'state', state: 'failed' })); }
     }
     if (m.type === 'trust_fingerprint') db.prepare('INSERT OR REPLACE INTO trusted_host_keys VALUES (?,?,?,?,?,?)').run(uuid(), userId, m.hostId, m.fingerprint, 'sha256', new Date().toISOString());
-    if (m.type === 'input') { const s = sessions.get(m.sessionId); if (!s) return ws.send(JSON.stringify({ type: 'error', message: 'invalid_session' })); s.stream?.write(m.data); }
+    if (m.type === 'input') { const s = sessions.get(m.sessionId); if (!s) return ws.send(JSON.stringify({ type: 'error', message: 'invalid_session' })); db.prepare('UPDATE sessions SET last_activity_at=? WHERE id=?').run(new Date().toISOString(),m.sessionId); s.stream?.write(m.data); }
     if (m.type === 'resize') { const s = sessions.get(m.sessionId); if (!s) return ws.send(JSON.stringify({ type: 'error', message: 'invalid_session' })); s.stream?.setWindow(m.rows, m.cols, 0, 0); }
     if (m.type === 'disconnect') { const s = sessions.get(m.sessionId); if (!s) return ws.send(JSON.stringify({ type: 'error', message: 'invalid_session' })); try { s.ssh.end(); } finally { sessions.delete(m.sessionId); } }
   });
