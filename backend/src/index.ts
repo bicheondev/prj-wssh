@@ -31,7 +31,7 @@ const wss = new WebSocketServer({ server, path: '/ws/terminal' });
 wss.on('connection', (ws, req) => {
   try { const token = new URL(req.url!, 'http://x').searchParams.get('token') || ''; (ws as any).userId = verifyToken(env.JWT_SECRET, token).sub; } catch { ws.close(1008, 'unauthorized'); return; }
   ws.on('message', async (raw) => {
-    const now = Math.floor(Date.now() / 1000); const rate = msgRate.get(ws) || { count: 0, tick: now }; if (rate.tick !== now) { rate.tick = now; rate.count = 0; } rate.count++; msgRate.set(ws, rate); if (rate.count > 40) return ws.send(JSON.stringify({ type: 'error', message: 'rate_limited' }));
+    const now = Math.floor(Date.now() / 1000); const rate = msgRate.get(ws) || { count: 0, tick: now }; if (rate.tick !== now) { rate.tick = now; rate.count = 0; } rate.count++; msgRate.set(ws, rate); if (rate.count > 40) { ws.send(JSON.stringify({ type: 'error', message: 'rate_limited' })); return; }
     let m: any;
     try { m = JSON.parse(raw.toString()); } catch { ws.send(JSON.stringify({ type: 'error', message: 'invalid_json' })); ws.close(1003, 'invalid_json'); return; }
     const userId = (ws as any).userId;
@@ -52,9 +52,9 @@ wss.on('connection', (ws, req) => {
     if (m.type === 'trust_fingerprint') db.prepare('INSERT OR REPLACE INTO trusted_host_keys VALUES (?,?,?,?,?,?)').run(uuid(), userId, m.hostId, m.fingerprint, 'sha256', new Date().toISOString());
     if (m.type === 'input') { const s = sessions.get(m.sessionId); if (!s) return ws.send(JSON.stringify({ type: 'error', message: 'invalid_session' })); s.stream?.write(m.data); }
     if (m.type === 'resize') { const s = sessions.get(m.sessionId); if (!s) return ws.send(JSON.stringify({ type: 'error', message: 'invalid_session' })); s.stream?.setWindow(m.rows, m.cols, 0, 0); }
-    if (m.type === 'disconnect') { const s = sessions.get(m.sessionId); if (!s) return; s.ssh.end(); sessions.delete(m.sessionId); }
+    if (m.type === 'disconnect') { const s = sessions.get(m.sessionId); if (!s) return ws.send(JSON.stringify({ type: 'error', message: 'invalid_session' })); try { s.ssh.end(); } finally { sessions.delete(m.sessionId); } }
   });
-  ws.on('close', () => { for (const [id, s] of sessions) if (s.ws === ws) { s.ssh.end(); sessions.delete(id); } });
+  ws.on('close', () => { for (const [id, s] of sessions) { if (s.ws === ws) { try { s.ssh.end(); } catch {} finally { sessions.delete(id); } } } });
 });
 
 app.use((err: any, _req: any, res: any, _next: any) => res.status(500).json({ message: 'Internal server error' }));
