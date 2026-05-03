@@ -18,3 +18,14 @@
 
 ## Why
 These changes were required to meet core security and architecture requirements: real auth, encrypted secrets, SSRF defenses, user isolation, and server-owned SSH lifecycle.
+
+## Critical fixes after review
+- Added safe WebSocket JSON parsing with graceful protocol error response + close to prevent process-level crashes from malformed frames.
+- Fixed SSH `hostVerifier` to use ssh2 `hashed` fingerprint when `hostHash: 'sha256'` and store/compare that exact value.
+- Added async route safety wrapper + global Express error handler to avoid unhandled promise rejections.
+- Corrected IPv6 private-range policy to honor `ADMIN_ALLOW_PRIVATE_NETWORKS` override consistently.
+- Added process-level `unhandledRejection` and `uncaughtException` handlers for operational visibility.
+- Added per-connection WebSocket message rate limiting and invalid session guards for `input`/`resize`.
+
+### Why critical
+These issues could allow denial-of-service, security policy bypass/inconsistency, or unstable runtime behavior under malformed or abusive traffic.
